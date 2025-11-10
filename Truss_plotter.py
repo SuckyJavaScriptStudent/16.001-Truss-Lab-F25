@@ -1,3 +1,8 @@
+"""
+Project: Truss Data Analysis
+Author: Asael Acosta
+Acknowledgment: Portions of this code were developed with assistance from ChatGPT (GPT-5, OpenAI, 2025).
+"""
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -18,7 +23,7 @@ steelDat = {
     },
     'Trial 3' : {
         'Loads' : [80.62,158.86,242.83,320.46,397.23],
-        'F5measured' : [-98.84,-175.97,-255.21,-324.40,-339.80],
+        'F5measured' : [-98.84,-175.97,-255.21,-324.40,-399.80],
         'F6measured' : [58.30,98.09,140.70,179.41,219.12],
         'F7measured' : [75.76,132.29,187.43,240.77,292.43],
         'Disp' : [0.030,0.040,0.050,0.059,0.069],
@@ -176,26 +181,52 @@ def plot_truss_data(steelDat, alumData, theoretical_funcs):
     plt.show()
 
 
-# === Example usage ===
-# Define your theoretical functions for each bar.
-# (Replace these linear relations with your actual analytical models.)
-def F5_theoretical(load):
-    return -load
+def compute_average_percent_error(trussData, theoretical_funcs):
+    """
+    Computes the average percent error between the measured and
+    theoretical bar loads across all trials, for each bar (F5, F6, F7).
 
-def F6_theoretical(load):
-    return load / 2
+    Percent error is defined as:
+        |measured - theoretical| / |theoretical| * 100
 
-def F7_theoretical(load):
-    return load / np.sqrt(2)
+    Parameters
+    ----------
+    trussData : dict
+        Truss data dictionary (e.g., steelDat or alumData)
+    theoretical_funcs : dict
+        Dictionary mapping bar labels ('F5', 'F6', 'F7') to their theoretical functions.
 
-theoretical_funcs = {
-    'F5': F5_theoretical,
-    'F6': F6_theoretical,
-    'F7': F7_theoretical
-}
+    Returns
+    -------
+    dict
+        Dictionary of average percent error values for each bar.
+    """
+    bar_labels = ['F5', 'F6', 'F7']
+    percent_errors = {}
 
-# Then call:
-plot_truss_data(steelDat, alumData, theoretical_funcs)
+    for bar_label in bar_labels:
+        error_list = []
+        for trial_data in trussData.values():
+            measured = np.array(trial_data[f'{bar_label}measured'])
+            loads = np.array(trial_data['Loads'])
+            theoretical = theoretical_funcs[bar_label](loads)
+
+            # Avoid division by zero
+            valid_mask = theoretical != 0
+            measured = measured[valid_mask]
+            theoretical = theoretical[valid_mask]
+
+            percent_error = np.abs((measured - theoretical) / theoretical) * 100
+            mean_error = np.mean(percent_error)
+            error_list.append(mean_error)
+
+        avg_percent_error = np.mean(error_list)
+        percent_errors[bar_label] = avg_percent_error
+
+        print(f"Average percent error for {bar_label}: {avg_percent_error:.2f}%")
+
+    return percent_errors
+
 
 def plot_load_displacement(steelDat, alumData):
     """
@@ -219,7 +250,7 @@ def plot_load_displacement(steelDat, alumData):
     # --- Plot steel trials ---
     for i, (trial_name, trial_data) in enumerate(steelDat.items()):
         plt.plot(
-            trial_data['Disp'], trial_data['Loads'],
+            trial_data['Loads'], trial_data['Disp'],
             color=colors['steel'], linestyle=linestyles['steel'],
             marker=markers[i % len(markers)],
             label=f'Steel' if i == 0 else None,
@@ -229,7 +260,7 @@ def plot_load_displacement(steelDat, alumData):
     # --- Plot aluminum trials ---
     for i, (trial_name, trial_data) in enumerate(alumData.items()):
         plt.plot(
-            trial_data['Disp'], trial_data['Loads'],
+            trial_data['Loads'], trial_data['Disp'],
             color=colors['alum'], linestyle=linestyles['alum'],
             marker=markers[i % len(markers)],
             label=f'Aluminum' if i == 0 else None,
@@ -238,12 +269,166 @@ def plot_load_displacement(steelDat, alumData):
 
     # --- Formatting ---
     plt.title('Load vs. Displacement for Steel and Aluminum Trusses')
-    plt.xlabel('Displacement (in)')
-    plt.ylabel('Applied Load (lbs)')
+    plt.xlabel('Applied Load (lbs)')
+    plt.ylabel('Displacement (in)')
     plt.grid(True)
     plt.legend(title='Truss Material')
     plt.tight_layout()
+    plt.savefig('OVER_HERE.png')
     plt.show()
-    plt.savefig('displacement.png')
 
+
+def plot_residuals_from_theoretical_funcs(steelDat, alumDat, theoretical_funcs, save_fig=False):
+    """
+    Compute and plot residuals (measured - theoretical) for Aluminum and Steel truss data
+    using a dictionary of theoretical functions.
+
+    Parameters
+    ----------
+    steelDat : dict
+        Nested dict where each key is a trial, containing 'Loads' and measured forces (F5, F6, F7).
+    alumDat : dict
+        Same structure as steelDat for the aluminum truss.
+    theoretical_funcs : dict
+        Dictionary mapping bar names ('F5', 'F6', 'F7') to functions f(load) → expected load.
+    save_fig : bool, optional
+        If True, saves the residual plots as PNGs.
+
+    Returns
+    -------
+    residuals : dict
+        Nested dictionary of residuals for each material, trial, and bar.
+    """
+
+    materials = {"Aluminum": alumDat, "Steel": steelDat}
+    residuals = {"Aluminum": {}, "Steel": {}}
+
+    for material, dataset in materials.items():
+        for trial, data in dataset.items():
+            residuals[material][trial] = {}
+            loads = np.array(data["Loads"])
+
+            for bar in ["F5", "F6", "F7"]:
+                measured_key = f"{bar}measured"
+                if measured_key not in data:
+                    continue
+
+                measured = np.array(data[measured_key])
+                theoretical = np.array([theoretical_funcs[bar](L) for L in loads])
+                res = measured - theoretical
+                residuals[material][trial][bar] = res
+
+                # Plot residuals
+                plt.figure(figsize=(6, 4))
+                plt.axhline(0, color='black', linestyle='--', linewidth=1)
+                plt.plot(loads, res, 'o-', label=f"{trial} ({bar}) Residuals")
+                plt.xlabel("Applied Load (N)")
+                plt.ylabel("Residual (Measured - Theoretical) [N]")
+                plt.title(f"{material} — {bar} Residuals ({trial})")
+                plt.legend()
+                plt.grid(True, linestyle=':', alpha=0.7)
+                plt.tight_layout()
+
+                if save_fig:
+                    plt.savefig(f"{material}_{bar}_{trial}_residuals.png", dpi=300)
+
+                plt.show()
+
+    return residuals
+
+
+def plot_bar_residuals(steelDat, alumDat, theoretical_funcs, save_fig=False):
+    """
+    Compute and plot residuals (measured - theoretical) for all bars.
+    Each bar has one figure showing residuals for all trials of both materials.
+
+    Parameters
+    ----------
+    steelDat : dict
+        Steel truss data (nested dict with trial entries containing 'Loads' and measured bar data).
+    alumDat : dict
+        Aluminum truss data with the same structure as steelDat.
+    theoretical_funcs : dict
+        Maps bar labels ('F5', 'F6', 'F7') to functions that return expected loads for given applied loads.
+    save_fig : bool, optional
+        If True, saves the plots as PNG files.
+
+    Returns
+    -------
+    residuals : dict
+        Nested dictionary of residuals by material, trial, and bar.
+    """
+
+    materials = {"Steel": steelDat, "Aluminum": alumDat}
+    residuals = {"Steel": {}, "Aluminum": {}}
+
+    bar_labels = ["F5", "F6", "F7"]
+    colors = {
+        "Steel": "tab:blue",
+        "Aluminum": "tab:orange"
+    }
+
+    for bar in bar_labels:
+        plt.figure(figsize=(7, 5))
+        plt.axhline(0, color="black", linestyle="--", linewidth=1)
+
+        for material, dataset in materials.items():
+            for trial_name, trial_data in dataset.items():
+                loads = np.array(trial_data["Loads"])
+                measured = np.array(trial_data[f"{bar}measured"])
+                theoretical = np.array([theoretical_funcs[bar](L) for L in loads])
+                res = measured - theoretical
+
+                # Store residuals
+                residuals[material].setdefault(trial_name, {})[bar] = res
+
+                # Plot residual line for this trial
+                plt.plot(
+                    loads,
+                    res,
+                    marker="o",
+                    linestyle="-",
+                    color=colors[material],
+                    alpha=0.6,
+                    label=f"{material}" if trial_name == "Trial 1" else None
+                )
+
+        # Plot formatting
+        plt.title(f"Residuals for Bar {bar[-1]}")
+        plt.xlabel("Applied Load (lbs)")
+        plt.ylabel("Residual (Measured - Theoretical) [lbs]")
+        plt.legend(title="Material", loc="best")
+        plt.grid(True, linestyle=":", alpha=0.7)
+        plt.tight_layout()
+
+        if save_fig:
+            plt.savefig(f"residuals_{bar}.png")
+
+        plt.show()
+
+    return residuals
+
+
+
+theoretical_funcs = {
+    'F5': lambda load: -load,
+    'F6': lambda load: load / 2,
+    'F7': lambda load: load / np.sqrt(2)
+}
+
+#Plot the truss data
+plot_truss_data(steelDat, alumData, theoretical_funcs)
+
+#Plot the displacement data
 plot_load_displacement(steelDat, alumData)
+
+#Plot the residuals
+residuals = plot_bar_residuals(steelDat, alumData, theoretical_funcs, save_fig=True)
+print(f"The residuals:")
+print(residuals)
+
+#print out percent errors/differences
+print("\n--- % Difference for Steel ---")
+steel_mse = compute_average_percent_error(steelDat, theoretical_funcs)
+print("\n--- % Difference for Aluminum ---")
+alum_mse = compute_average_percent_error(alumData, theoretical_funcs)
